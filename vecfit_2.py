@@ -111,7 +111,6 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True):
     f_residues : bool, default=True
         signals if the residues of sigma (True) or f (False) are being
         calculated. The equation is a bit different in each case.
-    
     Returns
     -------
     A, b : of the equation Ax = b
@@ -258,7 +257,10 @@ def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=3,
     
     Returns
     -------
-    fitted(s) : the fitted function with 's' as parameter
+    poles : adjusted poles
+    residues : adjusted residues
+    d : adjusted offset
+    h : adjusted slope
     """
     w = s.imag
     if initial_poles == None:
@@ -273,54 +275,67 @@ def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=3,
         poles = fitting_poles(f, s, poles)
         
     residues, d, h = fitting_residues(f, s, poles)
-    fitted = lambda s: rational_model(s, poles, residues, d, h)
-    return fitted
+    return poles,residues, d, h
+    
+def print_params(poles, residues, d, h):
+    cfmt = "{0.real:g} + {0.imag:g}j"
+    print("poles: " + ", ".join(cfmt.format(p) for p in poles))
+    print("residues: " + ", ".join(cfmt.format(r) for r in residues))
+    print("offset: {:g}".format(d))
+    print("slope: {:g}".format(h))
 
-def test():
-    true_poles = np.array([-4500, -41e3,
-                     -100 + 5e3j, -100 - 5e3j,
-                     -120 + 15e3j, -120 - 15e3j,
-                     -3e3 + 35e3j, -3e3 - 35e3j,
-                     -200 + 45e3j, -200 - 45e3j,
-                     -15e2 + 45e3j, -15e2 - 45e3j,
-                     -500 + 70e3j, -500 - 70e3j,
-                     -1e3 + 73e3j, -1e3 - 73e3j,
-                     -2e3 + 90e3j, -2e3 - 90e3j])
-    true_residuals = np.array([-3e3, -83e3,
-                        -5 + 7e3j, -5 - 7e3j,
-                        -20 + 18e3j, -20 - 18e3j,
-                        6e3 + 45e3j, 6e3 - 45e3j,
-                        40 + 60e3j, 40 - 60e3j,
-                        90 + 10e3j, 90 - 10e3j,
-                        50e3 + 80e3j, 50e3 - 80e3j,
-                        1e3 + 45e3j, 1e3 - 45e3j,
-                        -5e3 + 92e3j, -5e3 - 92e3j])
-    true_d = -2e-12
-    true_h = -5e-18
-    s = 1j*np.linspace(0, 100e3, 200)
-    test_f = rational_model(s, true_poles, true_residuals, true_d,
-                            true_h)
-    
-    initial_poles = np.array([-1e-2 + 1j, -1e-2 - 1j,
-                              -1.11e2 + 1.11e4j, -1.11e2 - 1.11e4j,
-                              -2.22e2 + 2.22e4j, -2.22e2 - 2.22e4j,
-                              -3.33e2 + 3.33e4j, -3.33e2 - 3.33e4j,
-                              -4.44e2 + 4.44e4j, -4.44e2 - 4.44e4j,
-                              -5.55e2 + 5.55e4j, -5.55e2 - 5.55e4j,
-                              -6.66e2 + 6.66e4j, -6.66e2 - 6.66e4j,
-                              -7.77e2 + 7.77e4j, -7.77e2 - 7.77e4j,
-                              -8.88e2 + 8.88e4j, -8.88e2 - 8.88e4j,
-                              -1e3 + 1e5j, -1e3 - 1e5j])
-    
-#    poles = fitting_poles(test_f, s, initial_poles)
-#    residues, d, h = fitting_residues(test_f, s, poles)
-#    fitted = rational_model(s, poles, residues, d, h)
-    fitted = vector_fitting(test_f, s, initial_poles=initial_poles)
-    fitted = fitted(s)
-    
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.plot(s.imag/1e3, abs(test_f))
-    ax.plot(s.imag/1e3, abs(fitted), 'x')
-    ax.set_xlabel("kHz")
-    ax.legend(["true", "fitted"])
+def vectfit_auto_rescale(f, s, **kwargs):
+    s_scale = abs(s[-1])
+    f_scale = abs(f[-1])
+    print('SCALED')
+    poles_s, residues_s, d_s, h_s = vector_fitting(f / f_scale, s / s_scale, **kwargs)
+    #rescaling :
+    poles    = poles_s * s_scale
+    residues = residues_s * f_scale * s_scale
+    d = d_s * f_scale
+    h = h_s * f_scale / s_scale
+    print('UNSCALED')
+    print_params(poles, residues, d, h)
+    return poles, residues, d, h
+
+if __name__ == '__main__':
+    test_s = 1j*np.linspace(1, 1e5, 800)
+    test_poles = [
+        -4500,
+        -41000,
+        -100+5000j, -100-5000j,
+        -120+15000j, -120-15000j,
+        -3000+35000j, -3000-35000j,
+        -200+45000j, -200-45000j,
+        -1500+45000j, -1500-45000j,
+        -500+70000j, -500-70000j,
+        -1000+73000j, -1000-73000j,
+        -2000+90000j, -2000-90000j,
+    ]
+    test_residues = [
+        -3000,
+        -83000,
+        -5+7000j, -5-7000j,
+        -20+18000j, -20-18000j,
+        6000+45000j, 6000-45000j,
+        40+60000j, 40-60000j,
+        90+10000j, 90-10000j,
+        50000+80000j, 50000-80000j,
+        1000+45000j, 1000-45000j,
+        -5000+92000j, -5000-92000j
+    ]
+    test_d = .2
+    test_h = 2e-5
+
+    test_f = sum(c/(test_s - a) for c, a in zip(test_residues, test_poles))
+    test_f +=  test_h*test_s #+ test_d
+    #vectfit_auto(test_f, test_s)
+
+    poles, residues, d, h = vectfit_auto_rescale(test_f, test_s)
+    fitted = rational_model(test_s, poles, residues, d, h)
+    plt.figure()
+    plt.plot(test_s.imag, test_f.real)
+    plt.plot(test_s.imag, test_f.imag)
+    plt.plot(test_s.imag, fitted.real, 'r--')
+    plt.plot(test_s.imag, fitted.imag, 'b--')
+    plt.show()
