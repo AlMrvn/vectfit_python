@@ -60,10 +60,9 @@ def rational_model(s, poles, residues, d, h):
     ----
     n=1
     """
-    f = lambda s: (residues/(s - poles)).sum() + d + s*h
-    y = np.vectorize(f)
-    return y(s)
+    return sum(r/(s-p) for p, r in zip(poles, residues)) + d + s*h
 
+    
 def flag_poles(poles, Ns):
     """
     Identifies a given pole:
@@ -144,7 +143,7 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True):
         warnings.warn(message, UserWarning)
     return A, b
 
-def fitting_poles(f, s, poles):
+def get_poles(f, s, poles):
     """
     Calculates the poles of the fitting function.
     
@@ -167,7 +166,7 @@ def fitting_poles(f, s, poles):
     # calculates the residues of sigma
     A, b = residues_equation(f, s, poles, cindex)
     # Solve Ax == b using pseudo-inverse
-    x, residuals, rnk, s = np.linalg.lstsq(A, b, rcond=-1)
+    x, residuals, _, _ = np.linalg.lstsq(A, b, rcond=-1)
 
     # We only want the "tilde" part in (A.4)
     x = x[-N:]
@@ -185,26 +184,25 @@ def fitting_poles(f, s, poles):
             A[i+1, i] = y
             b[i] = 2
             b[i+1] = 0
-            #cv = c[i]
-            #c[i,i+1] = real(cv), imag(cv)
 
     H = A - np.outer(b, c)
     H = H.real
     eig = np.linalg.eigvals(H)
+    #relocating in the lower half plane
     new_poles = np.sort(eig)
-    unstable = new_poles.real > 0
+    unstable  = new_poles.real > 0
     new_poles[unstable] -= 2*new_poles.real[unstable]
     return new_poles
 
-def fitting_residues(f, s, poles):
+def get_residues(f, s, poles):
     """
-    Calculates the poles of the fitting function.
+    Calculates the residues of the fitting function.
     
     Parameters
     ----------
     f : array of the complex data to fit
     s : complex sampling points of f
-    poles : calculated poles (by fitting _poles)
+    poles : calculated poles (by get_poles)
     
     Returns
     -------
@@ -272,12 +270,13 @@ def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=3,
         
     poles = initial_poles
     for _ in range(n_iter):
-        poles = fitting_poles(f, s, poles)
+        poles = get_poles(f, s, poles)
         
-    residues, d, h = fitting_residues(f, s, poles)
+    residues, d, h = get_residues(f, s, poles)
     return poles,residues, d, h
     
 def print_params(poles, residues, d, h):
+    """ print the parameter obtain by the fitting """
     cfmt = "{0.real:g} + {0.imag:g}j"
     print("poles: " + ", ".join(cfmt.format(p) for p in poles))
     print("residues: " + ", ".join(cfmt.format(r) for r in residues))
@@ -328,7 +327,7 @@ if __name__ == '__main__':
     test_h = 2e-5
 
     test_f = sum(c/(test_s - a) for c, a in zip(test_residues, test_poles))
-    test_f +=  test_h*test_s #+ test_d
+    test_f +=  test_h*test_s + test_d
     #vectfit_auto(test_f, test_s)
 
     poles, residues, d, h = vectfit_auto_rescale(test_f, test_s)
