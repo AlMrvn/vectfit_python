@@ -61,11 +61,11 @@ def rational_model(s, poles, residues, d, h):
     ----
     n=1
     """
-    if array(residues).ndim ==1:
+    if np.array(residues).ndim ==1:
         return sum(r/(s-p) for p, r in zip(poles, residues)) + d + s*h
-    elif array(residues).ndim ==2:
-        f = zeros((len(s),shape(residues)[0]), dtype = complex64)
-        for k in range(shape(residues)[0]):
+    elif np.array(residues).ndim ==2:
+        f = zeros((len(s),np.shape(residues)[0]), dtype = np.complex64)
+        for k in range(np.shape(residues)[0]):
             f[:,k] = sum(r/(s-p) for p, r in zip(poles, residues[k,:])) + d[k] + s*h[k]
         return f
     
@@ -125,7 +125,6 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'lin
     except ValueError:
         Ns = len(f)
         Ndim = 1
-    print(Ndim)
     N  = len(poles)
     A0_list = []
     A1_list = []
