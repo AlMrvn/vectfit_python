@@ -1,6 +1,7 @@
 Duplication of the [Fast Relaxed Vector-Fitting algorithm](http://www.sintef.no/Projectweb/VECTFIT/) in python.
 
-This version was inspired by the one made by Phil Reinhold. The changes are mainly of documentation and code organization. There is no auto rescaling of the problem!
+This version comes from the work of Phil Reinhold Pedro H. N. Vieira. The changes are just notation and the extension to vectors of function
+in order to fit several function with the same set of poles.
 
 Example of use:
 ```
