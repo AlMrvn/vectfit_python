@@ -95,7 +95,7 @@ def flag_poles(poles, Ns):
                 
     return cindex
 
-def residues_equation(f, s, poles, cindex, sigma_residues=True):
+def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'linear'):
     """
     Builds the first linear equation to solve. See Appendix A.
     
@@ -115,27 +115,31 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True):
     A, b : of the equation Ax = b
     """
     Ns = len(s)
-    N = len(poles)
-    A = np.zeros((Ns, 2*N+2), dtype=np.complex64)
+    N  = len(poles)
+    A0 = np.zeros((Ns, N), dtype=np.complex64)
+    A1 = np.zeros((Ns, N), dtype=np.complex64)
     for i, p in enumerate(poles):
         if cindex[i] == 0:
-            A[:, i] = 1/(s - p)
+            A0[:, i] = 1/(s - p)
         elif cindex[i] == 1:
-            A[:, i] = 1/(s - p) + 1/(s - p.conjugate())
+            A0[:, i] = 1/(s - p) + 1/(s - p.conjugate())
         elif cindex[i] == 2:
-            A[:, i] = 1j/(s - p) - 1j/(s - p.conjugate())
+            A0[:, i] = 1j/(s - p) - 1j/(s - p.conjugate())
         else:
             raise RuntimeError("cindex[%s] = %s" % (i, cindex[i]))
         
         if sigma_residues:
-            A[:, N+2+i] = -A[:, i]*f
-
-    A[:, N] = 1
-    A[:, N+1] = s
-
-    b = f
-    A = np.vstack((A.real, A.imag))
-    b = np.concatenate((b.real, b.imag))
+            A1[:, i] = -A0[:, i]*f
+    if asymptote==None:
+        A = np.concatenate([A0, A1], axis=1)
+    if asymptote=='constant':
+        A = np.concatenate([A0, np.transpose([np.ones(Ns)]), A1], axis=1)
+    if asymptote=='linear':
+        A = np.concatenate([A0, np.transpose([np.ones(Ns)]), np.transpose([s]), A1], axis=1)
+        
+    b  = f
+    A  = np.vstack((A.real, A.imag))
+    b  = np.concatenate((b.real, b.imag))
     cA = np.linalg.cond(A)
     if cA > 1e13:
         message = ('Ill Conditioned Matrix. Cond(A) = ' + str(cA) 
@@ -298,6 +302,7 @@ def vectfit_auto_rescale(f, s, **kwargs):
     return poles, residues, d, h
 
 if __name__ == '__main__':
+    ### testing the example of [1]
     test_s = 1j*np.linspace(1, 1e5, 800)
     test_poles = [
         -4500,
@@ -328,7 +333,6 @@ if __name__ == '__main__':
 
     test_f = sum(c/(test_s - a) for c, a in zip(test_residues, test_poles))
     test_f +=  test_h*test_s + test_d
-    #vectfit_auto(test_f, test_s)
 
     poles, residues, d, h = vectfit_auto_rescale(test_f, test_s)
     fitted = rational_model(test_s, poles, residues, d, h)
