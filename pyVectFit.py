@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@author: Phil Reinhold
+@author: Phil Reinhold, Pedro H. N. Vieira and Alexis Morvan
 
 Duplication of the vector fitting algorithm in python 
 (http://www.sintef.no/Projectweb/VECTFIT/)
@@ -32,6 +32,8 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     fitted = vector_fitting(f,s)
 ```
+
+TODO : repair the affine/linear/constant option
 """
 import numpy as np
 from scipy.linalg import block_diag
@@ -101,7 +103,7 @@ def flag_poles(poles, Ns):
                 
     return cindex
 
-def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'linear'):
+def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'affine'):
     """
     Builds the first linear equation to solve. See Appendix A.
     
@@ -148,8 +150,10 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'lin
                     A1[:, i] = -A0[:, i]*f[:,k]
         if asymptote=='constant':
             A0 = np.concatenate([A0, np.transpose([np.ones(Ns)])], axis=1)
+        if asymptote=='affine':
+            A0 = np.concatenate([A0, np.transpose([np.ones(Ns)]), np.transpose([s])], axis=1)
         if asymptote=='linear':
-            A0 = np.concatenate([A0, np.transpose([np.ones(Ns)]), np.transpose([s])], axis=1)            
+            A0 = np.concatenate([A0, np.transpose([s])], axis=1)  
         A0_list.append(A0)
         A1_list.append(A1)
     A = np.concatenate([block_diag(*A0_list),np.concatenate(A1_list, axis = 0)], axis=1)
@@ -167,7 +171,7 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'lin
         warnings.warn(message, UserWarning)
     return A, b
 
-def get_poles(f, s, poles):
+def get_poles(f, s, poles, asymptote ='linear'):
     """
     Calculates the poles of the fitting function.
     
@@ -188,7 +192,7 @@ def get_poles(f, s, poles):
     cindex = flag_poles(poles, Ns)
 
     # calculates the residues of sigma
-    A, b = residues_equation(f, s, poles, cindex)
+    A, b = residues_equation(f, s, poles, cindex,asymptote = asymptote)
     # Solve Ax == b using pseudo-inverse
     x, residuals, _, _ = np.linalg.lstsq(A, b, rcond=-1)
 
@@ -258,8 +262,11 @@ def get_residues(f, s, poles, asymptote = 'linear'):
                 x[(N+2)*k+i+1]  = r1 + 1j*r2
     
     residues = np.squeeze([ x[j*(N+2):j*(N+2)+N] for j in range(Ndim) ])
-    if asymptote == 'linear':
+    if asymptote == 'affine':
         d = [x[(N+2)*j+ N  ].real for j in range(Ndim)]
+        h = [x[(N+2)*j+ N+1].real for j in range(Ndim)]
+    elif asymptote == 'linear':
+        d = [0]*Ndim 
         h = [x[(N+2)*j+ N+1].real for j in range(Ndim)]
     elif asymptote =='constant':
         d = [x[(N+1)*j+ N].real for j in range(Ndim)]
@@ -270,7 +277,7 @@ def get_residues(f, s, poles, asymptote = 'linear'):
     return residues, d, h
 
 def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=15,
-                   initial_poles=None):
+                   initial_poles=None, asymptote = 'linear'):
     """
     Makes the vector fitting of a complex function.
     
@@ -307,9 +314,9 @@ def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=15,
         
     poles = initial_poles
     for _ in range(n_iter):
-        poles = get_poles(f, s, poles)
+        poles = get_poles(f, s, poles,asymptote=asymptote)
         
-    residues, d, h = get_residues(f, s, poles)
+    residues, d, h = get_residues(f, s, poles,asymptote=asymptote)
     return poles,residues, d, h
     
 def print_params(poles, residues, d, h):
@@ -376,14 +383,14 @@ if __name__ == '__main__':
     ]
     
     test_residues = np.vstack([np.array(test_residues),np.array(test_residues_2)])
-    test_d = [20,-10]
+    test_d = [0,0]
     test_h = [0,2e-5]
 
     
     test_f = rational_model(test_s, test_poles,test_residues,test_d ,test_h)
 
     
-    poles, residues, d, h = vector_fitting(test_f, test_s)
+    poles, residues, d, h = vector_fitting(test_f, test_s, asymptote = 'linear')
     fitted = rational_model(test_s, poles, residues, d, h)
     plt.figure()
     plt.plot(test_s.imag, test_f.real)
