@@ -38,7 +38,7 @@ from scipy.linalg import block_diag
 import matplotlib.pyplot as plt
 import warnings
 
-def rational_model(s, poles, residues, d=0, h=0):
+def rational_model(s, poles, residues, d, h):
     """
     Complex rational function.
     
@@ -61,7 +61,13 @@ def rational_model(s, poles, residues, d=0, h=0):
     ----
     n=1
     """
-    return array([sum(r/(s-p) for p, r in zip(poles, resk)) + dk + s*hk for (resk,dk,hk) in zip(residues,d,h)]).transpose()
+    if array(residues).ndim ==1:
+        return sum(r/(s-p) for p, r in zip(poles, residues)) + d + s*h
+    elif array(residues).ndim ==2:
+        f = zeros((len(s),shape(residues)[0]), dtype = complex64)
+        for k in range(shape(residues)[0]):
+            f[:,k] = sum(r/(s-p) for p, r in zip(poles, residues[k,:])) + d[k] + s*h[k]
+        return f
     
 def flag_poles(poles, Ns):
     """
@@ -147,22 +153,13 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'lin
             A0 = np.concatenate([A0, np.transpose([np.ones(Ns)]), np.transpose([s])], axis=1)            
         A0_list.append(A0)
         A1_list.append(A1)
-    A0_t = block_diag(*A0_list)
-    # print('shape de la matrix A0 {0}'.format(shape(A0_t)))
-    A1_t = np.concatenate(A1_list, axis = 0)
-    # print('shape de la matrix A1 {0}'.format(shape(A1_t)))
-    A = np.concatenate([A0_t,A1_t], axis=1)
-    print('shape de la matrix A {0}'.format(shape(A)))
-    # figure()
-    # plt.imshow(array(abs(A)),aspect = 'auto')
-    # show()
+    A = np.concatenate([block_diag(*A0_list),np.concatenate(A1_list, axis = 0)], axis=1)
+
     if Ndim ==1:    
         b  = f
     else:
         b = np.hstack([f[:,k] for k in range(Ndim)])
-    # print('shape de b {0}'.format(shape(b)))
     A  = np.vstack((A.real, A.imag))
-    print('shape de la matrix A (bis) {0}'.format(shape(A)))
     b  = np.concatenate((b.real, b.imag))
     cA = np.linalg.cond(A)
     if cA > 1e13:
@@ -252,7 +249,6 @@ def get_residues(f, s, poles, asymptote = 'linear'):
     A, b = residues_equation(f, s, poles, cindex, False, asymptote = asymptote)
     # Solve Ax == b using pseudo-inverse
     x, residuals, _, _ = np.linalg.lstsq(A, b, rcond=-1)
-    print('shape de x: {0}'.format(shape(x)))
     # Recover complex values
     x = np.complex64(x)
     for i, ci in enumerate(cindex):
@@ -262,7 +258,7 @@ def get_residues(f, s, poles, asymptote = 'linear'):
                 x[(N+2)*k+i]    = r1 - 1j*r2
                 x[(N+2)*k+i+1]  = r1 + 1j*r2
     
-    residues = squeeze([ x[j*(N+2):j*(N+2)+N] for j in range(Ndim) ])
+    residues = np.squeeze([ x[j*(N+2):j*(N+2)+N] for j in range(Ndim) ])
     if asymptote == 'linear':
         d = [x[(N+2)*j+ N  ].real for j in range(Ndim)]
         h = [x[(N+2)*j+ N+1].real for j in range(Ndim)]
@@ -272,7 +268,6 @@ def get_residues(f, s, poles, asymptote = 'linear'):
     elif asymptote == None:
         d = [0]*Ndim 
         h = [0]*Ndim 
-    print('h : {0}'.format(h))
     return residues, d, h
 
 def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=15,
@@ -366,12 +361,27 @@ if __name__ == '__main__':
         90+10000j, 90-10000j,
         50000+80000j, 50000-80000j,
         1000+45000j, 1000-45000j,
+        0, 0
+    ]
+    test_residues_2 = [
+        0,
+        -83000,
+        0,0,
+        -20+18000j, -20-18000j,
+        0, 0,
+        0, 0,
+        0, 0,
+        50000+80000j, 50000-80000j,
+        0, 0,
         -5000+92000j, -5000-92000j
     ]
-    test_d = 20
-    test_h = 2e-5
     
-    test_f = rational_model(test_s, poles, np.vstack([array(test_residues),array(test_residues)]),d = [0,test_d] ,h = [0,test_h])
+    test_residues = np.vstack([np.array(test_residues),np.array(test_residues_2)])
+    test_d = [20,-10]
+    test_h = [0,2e-5]
+
+    
+    test_f = rational_model(test_s, test_poles,test_residues,test_d ,test_h)
 
     
     poles, residues, d, h = vector_fitting(test_f, test_s)
