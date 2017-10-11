@@ -38,7 +38,7 @@ from scipy.linalg import block_diag
 import matplotlib.pyplot as plt
 import warnings
 
-def rational_model(s, poles, residues, d, h):
+def rational_model(s, poles, residues, d=0, h=0):
     """
     Complex rational function.
     
@@ -61,7 +61,7 @@ def rational_model(s, poles, residues, d, h):
     ----
     n=1
     """
-    return sum(r/(s-p) for p, r in zip(poles, residues)) + d + s*h
+    return array([sum(r/(s-p) for p, r in zip(poles, resk)) + dk + s*hk for (resk,dk,hk) in zip(residues,d,h)]).transpose()
     
 def flag_poles(poles, Ns):
     """
@@ -119,6 +119,7 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'lin
     except ValueError:
         Ns = len(f)
         Ndim = 1
+    print(Ndim)
     N  = len(poles)
     A0_list = []
     A1_list = []
@@ -139,21 +140,29 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'lin
                 if Ndim==1:
                     A1[:, i] = -A0[:, i]*f
                 else:
-                    A1[:, i] = -A0[:, i]*f
+                    A1[:, i] = -A0[:, i]*f[:,k]
         if asymptote=='constant':
             A0 = np.concatenate([A0, np.transpose([np.ones(Ns)])], axis=1)
         if asymptote=='linear':
             A0 = np.concatenate([A0, np.transpose([np.ones(Ns)]), np.transpose([s])], axis=1)            
         A0_list.append(A0)
         A1_list.append(A1)
-    print(block_diag(*A0_list))
-    print(np.shape(A1_list))
-    A = np.concatenate([block_diag(*A0_list), np.vstack(A1_list)], axis=1)
+    A0_t = block_diag(*A0_list)
+    # print('shape de la matrix A0 {0}'.format(shape(A0_t)))
+    A1_t = np.concatenate(A1_list, axis = 0)
+    # print('shape de la matrix A1 {0}'.format(shape(A1_t)))
+    A = np.concatenate([A0_t,A1_t], axis=1)
+    print('shape de la matrix A {0}'.format(shape(A)))
+    # figure()
+    # plt.imshow(array(abs(A)),aspect = 'auto')
+    # show()
     if Ndim ==1:    
         b  = f
     else:
-        b = np.hstack([f[:,i] for i in range(Ndim)])
+        b = np.hstack([f[:,k] for k in range(Ndim)])
+    # print('shape de b {0}'.format(shape(b)))
     A  = np.vstack((A.real, A.imag))
+    print('shape de la matrix A (bis) {0}'.format(shape(A)))
     b  = np.concatenate((b.real, b.imag))
     cA = np.linalg.cond(A)
     if cA > 1e13:
@@ -178,6 +187,7 @@ def get_poles(f, s, poles):
     -------
     new_poles : adjusted poles
     """
+    Ns = len(s)
     N = len(poles)
     cindex = flag_poles(poles, Ns)
 
@@ -229,36 +239,43 @@ def get_residues(f, s, poles, asymptote = 'linear'):
     d : adjusted offset
     h : adjusted slope
     """
-    N = len(poles)
-    Ns = len(s)
+    try:
+        Ns, Ndim = np.shape(f)
+    except ValueError:
+        Ns = len(s)
+        Ndim = 1
+    print(Ndim)
+    N      = len(poles)
     cindex = flag_poles(poles, Ns)
 
     # calculates the residues of sigma
     A, b = residues_equation(f, s, poles, cindex, False, asymptote = asymptote)
     # Solve Ax == b using pseudo-inverse
     x, residuals, _, _ = np.linalg.lstsq(A, b, rcond=-1)
-
+    print('shape de x: {0}'.format(shape(x)))
     # Recover complex values
     x = np.complex64(x)
     for i, ci in enumerate(cindex):
-       if ci == 1:
-           r1, r2 = x[i:i+2]
-           x[i] = r1 - 1j*r2
-           x[i+1] = r1 + 1j*r2
-
-    residues = x[:N]
+        if ci == 1:
+            for k in range(Ndim):
+                r1, r2      = x[(N+2)*k+i:(N+2)*k+i+2]
+                x[(N+2)*k+i]    = r1 - 1j*r2
+                x[(N+2)*k+i+1]  = r1 + 1j*r2
+    
+    residues = squeeze([ x[j*(N+2):j*(N+2)+N] for j in range(Ndim) ])
     if asymptote == 'linear':
-        d = x[N].real
-        h = x[N+1].real
+        d = [x[(N+2)*j+ N  ].real for j in range(Ndim)]
+        h = [x[(N+2)*j+ N+1].real for j in range(Ndim)]
     elif asymptote =='constant':
-        d = x[N].real
-        h = 0
+        d = [x[(N+1)*j+ N].real for j in range(Ndim)]
+        h = [0]*Ndim 
     elif asymptote == None:
-        d = 0
-        h = 0
+        d = [0]*Ndim 
+        h = [0]*Ndim 
+    print('h : {0}'.format(h))
     return residues, d, h
 
-def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=3,
+def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=15,
                    initial_poles=None):
     """
     Makes the vector fitting of a complex function.
@@ -288,9 +305,9 @@ def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=3,
     """
     w = s.imag
     if initial_poles == None:
-        beta = np.linspace(w[0], w[-1], poles_pairs+2)[1:-1]
+        beta          = np.linspace(w[0], w[-1], poles_pairs+2)[1:-1]
         initial_poles = np.array([])
-        p = np.array([[-loss_ratio + 1j], [-loss_ratio - 1j]])
+        p             = np.array([[-loss_ratio + 1j], [-loss_ratio - 1j]])
         for b in beta:
             initial_poles = np.append(initial_poles, p*b)
         
@@ -304,23 +321,24 @@ def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=3,
 def print_params(poles, residues, d, h):
     """ print the parameter obtain by the fitting """
     cfmt = "{0.real:g} + {0.imag:g}j"
-    print("poles: " + ", ".join(cfmt.format(p) for p in poles))
-    print("residues: " + ", ".join(cfmt.format(r) for r in residues))
-    print("offset: {:g}".format(d))
-    print("slope: {:g}".format(h))
+    # print("poles: " + ", ".join(cfmt.format(p) for p in poles))
+    # print("residues: " + ", ".join(cfmt.format(r) for r in residues))
+    # print("offset: {:g}".format(d))
+    # print("slope: {:g}".format(h))
 
 def vectfit_auto_rescale(f, s, **kwargs):
     s_scale = abs(s[-1])
-    f_scale = abs(f[-1])
+    # f_scale = abs(f[-1])
     print('SCALED')
-    poles_s, residues_s, d_s, h_s = vector_fitting(f / f_scale, s / s_scale, **kwargs)
+    poles_s, residues_s, d_s, h_s = vector_fitting(f, s / s_scale, **kwargs) #vector_fitting(f / f_scale, s / s_scale, **kwargs)
     #rescaling :
     poles    = poles_s * s_scale
-    residues = residues_s * f_scale * s_scale
-    d = d_s * f_scale
-    h = h_s * f_scale / s_scale
+    residues = array([[res  * s_scale for res in residues] for residues in residues_s]) # [res * f_scale * s_scale for res in residues_s]
+    print('shape de residues : {0} '.format(shape(residues)))
+    d = d_s # d_s * f_scale
+    h = h_s/s_scale # h_s * f_scale / s_scale
     print('UNSCALED')
-    print_params(poles, residues, d, h)
+    # print_params(poles, residues, d, h)
     return poles, residues, d, h
 
 if __name__ == '__main__':
@@ -350,13 +368,13 @@ if __name__ == '__main__':
         1000+45000j, 1000-45000j,
         -5000+92000j, -5000-92000j
     ]
-    test_d = .2
+    test_d = 20
     test_h = 2e-5
+    
+    test_f = rational_model(test_s, poles, np.vstack([array(test_residues),array(test_residues)]),d = [0,test_d] ,h = [0,test_h])
 
-    test_f = sum(c/(test_s - a) for c, a in zip(test_residues, test_poles))
-    test_f +=  test_h*test_s + test_d
-
-    poles, residues, d, h = vectfit_auto_rescale(test_f, test_s)
+    
+    poles, residues, d, h = vector_fitting(test_f, test_s)
     fitted = rational_model(test_s, poles, residues, d, h)
     plt.figure()
     plt.plot(test_s.imag, test_f.real)
