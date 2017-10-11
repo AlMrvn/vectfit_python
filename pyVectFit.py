@@ -34,6 +34,7 @@ with warnings.catch_warnings():
 ```
 """
 import numpy as np
+from scipy.linalg import block_diag
 import matplotlib.pyplot as plt
 import warnings
 
@@ -61,7 +62,6 @@ def rational_model(s, poles, residues, d, h):
     n=1
     """
     return sum(r/(s-p) for p, r in zip(poles, residues)) + d + s*h
-
     
 def flag_poles(poles, Ns):
     """
@@ -114,30 +114,45 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'lin
     -------
     A, b : of the equation Ax = b
     """
-    Ns = len(s)
+    try:
+        Ns, Ndim = np.shape(f)
+    except ValueError:
+        Ns = len(f)
+        Ndim = 1
     N  = len(poles)
-    A0 = np.zeros((Ns, N), dtype=np.complex64)
-    A1 = np.zeros((Ns, N), dtype=np.complex64)
-    for i, p in enumerate(poles):
-        if cindex[i] == 0:
-            A0[:, i] = 1/(s - p)
-        elif cindex[i] == 1:
-            A0[:, i] = 1/(s - p) + 1/(s - p.conjugate())
-        elif cindex[i] == 2:
-            A0[:, i] = 1j/(s - p) - 1j/(s - p.conjugate())
-        else:
-            raise RuntimeError("cindex[%s] = %s" % (i, cindex[i]))
-        
-        if sigma_residues:
-            A1[:, i] = -A0[:, i]*f
-    if asymptote==None:
-        A = np.concatenate([A0, A1], axis=1)
-    if asymptote=='constant':
-        A = np.concatenate([A0, np.transpose([np.ones(Ns)]), A1], axis=1)
-    if asymptote=='linear':
-        A = np.concatenate([A0, np.transpose([np.ones(Ns)]), np.transpose([s]), A1], axis=1)
-        
-    b  = f
+    A0_list = []
+    A1_list = []
+    for k in range(Ndim):
+        A0 = np.zeros((Ns, N), dtype=np.complex64)
+        A1 = np.zeros((Ns, N), dtype=np.complex64)
+        for i, p in enumerate(poles):
+            if cindex[i] == 0:
+                A0[:, i] = 1/(s - p)
+            elif cindex[i] == 1:
+                A0[:, i] = 1/(s - p) + 1/(s - p.conjugate())
+            elif cindex[i] == 2:
+                A0[:, i] = 1j/(s - p) - 1j/(s - p.conjugate())
+            else:
+                raise RuntimeError("cindex[%s] = %s" % (i, cindex[i]))
+            
+            if sigma_residues:
+                if Ndim==1:
+                    A1[:, i] = -A0[:, i]*f
+                else:
+                    A1[:, i] = -A0[:, i]*f
+        if asymptote=='constant':
+            A0 = np.concatenate([A0, np.transpose([np.ones(Ns)])], axis=1)
+        if asymptote=='linear':
+            A0 = np.concatenate([A0, np.transpose([np.ones(Ns)]), np.transpose([s])], axis=1)            
+        A0_list.append(A0)
+        A1_list.append(A1)
+    print(block_diag(*A0_list))
+    print(np.shape(A1_list))
+    A = np.concatenate([block_diag(*A0_list), np.vstack(A1_list)], axis=1)
+    if Ndim ==1:    
+        b  = f
+    else:
+        b = np.hstack([f[:,i] for i in range(Ndim)])
     A  = np.vstack((A.real, A.imag))
     b  = np.concatenate((b.real, b.imag))
     cA = np.linalg.cond(A)
@@ -164,7 +179,6 @@ def get_poles(f, s, poles):
     new_poles : adjusted poles
     """
     N = len(poles)
-    Ns = len(s)
     cindex = flag_poles(poles, Ns)
 
     # calculates the residues of sigma
@@ -189,8 +203,8 @@ def get_poles(f, s, poles):
             b[i] = 2
             b[i+1] = 0
 
-    H = A - np.outer(b, c)
-    H = H.real
+    H   = A - np.outer(b, c)
+    H   = H.real
     eig = np.linalg.eigvals(H)
     #relocating in the lower half plane
     new_poles = np.sort(eig)
@@ -198,7 +212,7 @@ def get_poles(f, s, poles):
     new_poles[unstable] -= 2*new_poles.real[unstable]
     return new_poles
 
-def get_residues(f, s, poles):
+def get_residues(f, s, poles, asymptote = 'linear'):
     """
     Calculates the residues of the fitting function.
     
@@ -207,6 +221,7 @@ def get_residues(f, s, poles):
     f : array of the complex data to fit
     s : complex sampling points of f
     poles : calculated poles (by get_poles)
+    asymptote : shape of the asymptote : linear, constant or None
     
     Returns
     -------
@@ -219,9 +234,9 @@ def get_residues(f, s, poles):
     cindex = flag_poles(poles, Ns)
 
     # calculates the residues of sigma
-    A, b = residues_equation(f, s, poles, cindex, False)
+    A, b = residues_equation(f, s, poles, cindex, False, asymptote = asymptote)
     # Solve Ax == b using pseudo-inverse
-    x, residuals, rnk, s = np.linalg.lstsq(A, b, rcond=-1)
+    x, residuals, _, _ = np.linalg.lstsq(A, b, rcond=-1)
 
     # Recover complex values
     x = np.complex64(x)
@@ -232,8 +247,15 @@ def get_residues(f, s, poles):
            x[i+1] = r1 + 1j*r2
 
     residues = x[:N]
-    d = x[N].real
-    h = x[N+1].real
+    if asymptote == 'linear':
+        d = x[N].real
+        h = x[N+1].real
+    elif asymptote =='constant':
+        d = x[N].real
+        h = 0
+    elif asymptote == None:
+        d = 0
+        h = 0
     return residues, d, h
 
 def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=3,
