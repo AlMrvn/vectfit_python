@@ -21,9 +21,6 @@ and the following papers:
      the Vector Fitting Method", IEEE Microwave and Wireless Components
      Letters, vol. 18, no. 6, pp. 383-385, June 2008.
      
-Version 2 is a modification mainly of naming, code organization
-and documentation by Pedro H. N. Vieira.
-
 A warning about Ill conditioning of the problem may arise. To ignore
 it in your code use
 
@@ -63,10 +60,10 @@ def rational_model(s, poles, residues, d, h):
     ----
     n=1
     """
-    if np.array(residues).ndim ==1:
+    if residues.ndim ==1:
         return sum(r/(s-p) for p, r in zip(poles, residues)) + d + s*h
-    elif np.array(residues).ndim ==2:
-        f = zeros((len(s),np.shape(residues)[0]), dtype = np.complex64)
+    elif residues.ndim ==2:
+        f = np.zeros((len(s),np.shape(residues)[0]), dtype = np.complex64)
         for k in range(np.shape(residues)[0]):
             f[:,k] = sum(r/(s-p) for p, r in zip(poles, residues[k,:])) + d[k] + s*h[k]
         return f
@@ -100,7 +97,6 @@ def flag_poles(poles, Ns):
                 cindex[i] = 1
             else:
                 cindex[i] = 2
-                
     return cindex
 
 def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'affine'):
@@ -118,6 +114,8 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'aff
     f_residues : bool, default=True
         signals if the residues of sigma (True) or f (False) are being
         calculated. The equation is a bit different in each case.
+    asymptote : define the asymptotic behavior to be fitted :
+        None, 'linear', 'affine' or 'constant'
     Returns
     -------
     A, b : of the equation Ax = b
@@ -153,11 +151,10 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'aff
         if asymptote=='affine':
             A0 = np.concatenate([A0, np.transpose([np.ones(Ns)]), np.transpose([s])], axis=1)
         if asymptote=='linear':
-            A0 = np.concatenate([A0, np.transpose([s])], axis=1)  
+            A0 = np.concatenate([A0, np.transpose([s])], axis=1)
         A0_list.append(A0)
         A1_list.append(A1)
     A = np.concatenate([block_diag(*A0_list),np.concatenate(A1_list, axis = 0)], axis=1)
-
     if Ndim ==1:    
         b  = f
     else:
@@ -171,7 +168,7 @@ def residues_equation(f, s, poles, cindex, sigma_residues=True, asymptote = 'aff
         warnings.warn(message, UserWarning)
     return A, b
 
-def get_poles(f, s, poles, asymptote ='linear'):
+def get_poles(f, s, poles, asymptote ='affine'):
     """
     Calculates the poles of the fitting function.
     
@@ -182,13 +179,14 @@ def get_poles(f, s, poles, asymptote ='linear'):
     poles : initial poles guess
         note: All complex poles must come in sequential complex
         conjugate pairs
-    
+    asymptote : define the asymptotic behavior to be fitted :
+        None, 'linear', 'affine' or 'constant'
     Returns
     -------
     new_poles : adjusted poles
     """
     Ns = len(s)
-    N = len(poles)
+    N  = len(poles)
     cindex = flag_poles(poles, Ns)
 
     # calculates the residues of sigma
@@ -222,7 +220,7 @@ def get_poles(f, s, poles, asymptote ='linear'):
     new_poles[unstable] -= 2*new_poles.real[unstable]
     return new_poles
 
-def get_residues(f, s, poles, asymptote = 'linear'):
+def get_residues(f, s, poles, asymptote = 'affine'):
     """
     Calculates the residues of the fitting function.
     
@@ -242,12 +240,19 @@ def get_residues(f, s, poles, asymptote = 'linear'):
     try:
         Ns, Ndim = np.shape(f)
     except ValueError:
-        Ns = len(s)
+        Ns   = len(s)
         Ndim = 1
     print(Ndim)
     N      = len(poles)
     cindex = flag_poles(poles, Ns)
 
+    if asymptote ==None:
+        Ntab = N
+    elif asymptote =='affine':
+        Ntab =N+2
+    elif asymptote =='linear' or asymptote =='constant':
+        Ntab = N+1
+    
     # calculates the residues of sigma
     A, b = residues_equation(f, s, poles, cindex, False, asymptote = asymptote)
     # Solve Ax == b using pseudo-inverse
@@ -257,27 +262,27 @@ def get_residues(f, s, poles, asymptote = 'linear'):
     for i, ci in enumerate(cindex):
         if ci == 1:
             for k in range(Ndim):
-                r1, r2      = x[(N+2)*k+i:(N+2)*k+i+2]
-                x[(N+2)*k+i]    = r1 - 1j*r2
-                x[(N+2)*k+i+1]  = r1 + 1j*r2
+                r1, r2      = x[Ntab*k+i:Ntab*k+i+2]
+                x[Ntab*k+i]    = r1 - 1j*r2
+                x[Ntab*k+i+1]  = r1 + 1j*r2
     
-    residues = np.squeeze([ x[j*(N+2):j*(N+2)+N] for j in range(Ndim) ])
+    residues = np.squeeze([ x[j*Ntab:j*Ntab+N] for j in range(Ndim) ])
     if asymptote == 'affine':
-        d = [x[(N+2)*j+ N  ].real for j in range(Ndim)]
-        h = [x[(N+2)*j+ N+1].real for j in range(Ndim)]
+        d = [x[Ntab*j+ N  ].real for j in range(Ndim)]
+        h = [x[Ntab*j+ N+1].real for j in range(Ndim)]
     elif asymptote == 'linear':
-        d = [0]*Ndim 
-        h = [x[(N+2)*j+ N+1].real for j in range(Ndim)]
+        d = [0.]*Ndim 
+        h = [x[Ntab*j+ N].real for j in range(Ndim)]
     elif asymptote =='constant':
-        d = [x[(N+1)*j+ N].real for j in range(Ndim)]
-        h = [0]*Ndim 
+        d = [x[Ntab*j+ N].real for j in range(Ndim)]
+        h = [0.]*Ndim 
     elif asymptote == None:
-        d = [0]*Ndim 
-        h = [0]*Ndim 
+        d = [0.]*Ndim 
+        h = [0.]*Ndim 
     return residues, d, h
 
 def vector_fitting(f, s, poles_pairs=10, loss_ratio=0.01, n_iter=15,
-                   initial_poles=None, asymptote = 'linear'):
+                   initial_poles=None, asymptote = 'affine'):
     """
     Makes the vector fitting of a complex function.
     
@@ -383,18 +388,18 @@ if __name__ == '__main__':
     ]
     
     test_residues = np.vstack([np.array(test_residues),np.array(test_residues_2)])
-    test_d = [0,0]
-    test_h = [0,2e-5]
+    test_d = [0.,0.]
+    test_h = [0.,0.]
 
     
     test_f = rational_model(test_s, test_poles,test_residues,test_d ,test_h)
 
     
-    poles, residues, d, h = vector_fitting(test_f, test_s, asymptote = 'linear')
+    poles, residues, d, h = vector_fitting(test_f, test_s, asymptote = None)
     fitted = rational_model(test_s, poles, residues, d, h)
     plt.figure()
-    plt.plot(test_s.imag, test_f.real)
-    plt.plot(test_s.imag, test_f.imag)
-    plt.plot(test_s.imag, fitted.real, 'r--')
-    plt.plot(test_s.imag, fitted.imag, 'b--')
+    plt.plot(test_s.imag/1e3, test_f.real)
+    plt.plot(test_s.imag/1e3, test_f.imag)
+    plt.plot(test_s.imag/1e3, fitted.real, 'r--')
+    plt.plot(test_s.imag/1e3, fitted.imag, 'b--')
     plt.show()
